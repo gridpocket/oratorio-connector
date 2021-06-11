@@ -55,6 +55,8 @@ and use the given demo account credentials to see the data-sharing process.
 
 # Credits
 
+This project is made by [GridPocket](https://www.gridpocket.com/en/), a company with ten years of smart-grids expertise.
+
 This project has received funding from the European Union’s H2020 research and innovation programme under Grant Agreement no 871498.
 
 See the [NGI Dapsi website](https://dapsi.ngi.eu/) for more information.
