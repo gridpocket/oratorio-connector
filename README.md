@@ -52,3 +52,11 @@ Then, execute the following command:
   
 - On the website click on "Connect to Oratorio" button
 and use the given demo account credentials to see the data-sharing process.
+
+# Credits
+
+This project has received funding from the European Union’s H2020 research and innovation programme under Grant Agreement no 871498.
+
+See the [NGI Dapsi website](https://dapsi.ngi.eu/) for more information.
+
+![](https://dapsi.ngi.eu/wp-content/uploads/2020/02/ngi-dapsi-footer-banner-ngi-eu@2x-768x61.png)
