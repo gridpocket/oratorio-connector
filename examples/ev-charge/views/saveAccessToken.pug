@@ -1,0 +1,11 @@
+doctype html
+html(lang='en')
+    head
+        title Save access token
+    body
+        p Save access token
+
+if accessToken
+    script(type="text/javascript").
+        localStorage.setItem('accessToken', "#{accessToken}");
+        location.href = "#{redirectUrl}"

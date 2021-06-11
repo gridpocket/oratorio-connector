@@ -1,0 +1,217 @@
+doctype html
+html(lang='en')
+    head
+        title Ev Charge Manager
+        link(href='https://cdn.jsdelivr.net/npm/bootstrap@5.0.1/dist/css/bootstrap.min.css'
+            rel="stylesheet" integrity="sha384-+0n0xVW2eSR5OomGNYDnhzAbDsOXxcvSN1TPprVMTNDbiYZCxYbOOl7+AMvyTG2x"
+            crossorigin="anonymous")
+        script(src='https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js')
+        script(src='https://cdn.jsdelivr.net/npm/jwt-decode@3.1.2/build/jwt-decode.js')
+        script(src="https://cdn.jsdelivr.net/npm/echarts@5.1.2/dist/echarts.min.js")
+    body
+        nav.navbar.navbar-light.bg-light
+            .container
+                a.navbar-brand(href="/")
+                    img.d-inline-block.align-top(src="/img/ev-charge-logo.png" width=30 height=30)
+                    | EvChargeManager
+                .d-flex
+                    button#logout-button.btn.btn-outline-danger.d-none(onclick="logout()") Logout
+        .container
+            h1 Ev-charge manager
+            section#no-access-token.d-none
+                .alert.alert-primary Welcome — You should accept Oratorio consent in order to use your data.
+                button.btn.btn-primary.btn-lg(onclick="redirectToLoginConsent()") Connect with Oratorio
+            section#no-consent.d-none
+                .alert.alert-warning Warning — You should accept Oratorio consent in order to use your data.
+                button.btn.btn-primary.btn-lg(onclick="redirectToOratorioConsent()") Change your consent on Oratorio
+            section#main.d-none
+                .d-flex.justify-contnent-center
+                    p Your car is consuming more more energy than the other three previous day.
+                    div#data-graph(style="width: 100%;height:600px;")
+                .container
+                    h3 Your car
+                    .row
+                        .col-sm
+                            img(src="/img/peugeot-e-208.png" class="img-fluid")
+                        .col-sm
+                            table.table.table-striped
+                                thead
+                                    tr
+                                        th Your e208
+                                tbody
+                                    tr
+                                        th Battery current capacity
+                                        td 60% (30 kWh / 50 kWh)
+                                    tr
+                                        th Estimate charge time
+                                        td ~2h12
+
+
+script(type="text/javascript").
+    const getIdFromIRI = (iri, type) => iri.match(`\/${type}\/(\\w*)`)[1]
+
+    const getPropertyFromIRI = (iri) => iri.match(/property=(\w*)/)[1]
+
+    const redirectToLoginConsent = () => {
+        const randomState = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        location.href = '#{oratorioAuthDomain}/authorize?' +
+            'response_type=code&' +
+            'client_id=#{clientId}&' +
+            'redirect_uri=#{appCallback}&' +
+            'audience=#{oauthAudience}&' +
+            'scope=openid%20email%20profile%20read:electricity_load_curve%20read:electricity_consumption_indexes&' +
+            `state=${randomState}` +
+            'prompt=login'
+    }
+
+    const redirectToOratorioConsent = () => {
+        window.open('#{oratorioConsentPageUrl}', '_blank').focus();
+    }
+
+    const hasConsentFor = (consents, thirdPartyId, property) => {
+        return consents.some((c) => {
+            return getIdFromIRI(c.forProcessing.shareDataWithThirdParty, 'thirdParty') === thirdPartyId &&
+                getPropertyFromIRI(c.forPersonalData, 'contract') === property &&
+                c.hasStatus === "Explicitly Given"
+        })
+    }
+
+    const logout = () => {
+        localStorage.removeItem('accessToken');
+        location.reload();
+    }
+
+    document.addEventListener("DOMContentLoaded", async () => {
+        const oratorioAPI = "#{oratorioAPI}"
+        const accessToken = localStorage.getItem('accessToken')
+
+        if (!accessToken) {
+            const noAccessTokenNode = document.getElementById("no-access-token")
+            noAccessTokenNode.classList.remove("d-none")
+
+            return;
+        }
+
+        // Show logout button
+        document.getElementById("logout-button").classList.remove('d-none');
+
+        const decoded = jwt_decode(accessToken);
+
+        const currentUserId = decoded["https://autodomus.eu/oratorio_user_id"];
+        const thirdPartyId = decoded.azp
+
+        const {data: user} = await axios.get(`${oratorioAPI}api/consumer/${currentUserId}`, {
+            headers: {
+                "Authorization": `Bearer ${accessToken}`
+            }
+        });
+
+        if (hasConsentFor(user.hasConsents, thirdPartyId, "loadCurve")) {
+            const mainNode = document.getElementById("main")
+            mainNode.classList.remove("d-none")
+
+            const myChart = echarts.init(document.getElementById('data-graph'));
+
+            const dataURL = user.hasConsents
+                .filter((c) => getPropertyFromIRI(c.forPersonalData) === "loadCurve")
+                .map(c => c.forPersonalData);
+
+            const dataURLWithDates = `${dataURL}&from=2020-11-01&to=2020-11-05`
+
+            const {data: loadCurveData} = await axios.get(dataURLWithDates, {
+                headers: {
+                    "Authorization": `Bearer ${accessToken}`
+                }
+            });
+
+            const transformedData = loadCurveData.measurements.map(m => {
+                const now = new Date(m.hasTimestamp);
+                const value = m.hasValue
+                return {
+                    name: now.toString(),
+                    value: [
+                        `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ${now.getHours()}:${now.getMinutes()}`,
+                        Math.round(value)
+                    ]
+                };
+            })
+
+            const carPowerConsumption = transformedData
+                .map((d) => {
+                    const date = new Date(d.name);
+                    const currentDay18Hour = new Date(date)
+                    currentDay18Hour.setHours(18)
+                    currentDay18Hour.setMinutes(0)
+
+                    const nextDay8Hour = new Date(date)
+                    nextDay8Hour.setDate(date.getDate() + 1)
+                    nextDay8Hour.setHours(8)
+                    nextDay8Hour.setMinutes(0)
+
+                    const [currentDateString, value] = d.value;
+
+                    if (date >= currentDay18Hour && date <= nextDay8Hour) {
+                        const rndInt = Math.floor(Math.random() * 500) + 100
+                        return [currentDateString, value - rndInt]
+                    } else {
+                        return [currentDateString, null]
+                    }
+                })
+
+            // specify chart configuration item and data
+            const option = {
+                title: {
+                    text: 'Your EV-Energy Power'
+                },
+                tooltip: {
+                    trigger: 'axis',
+                },
+                xAxis: {
+                    type: 'time',
+                    boundaryGap: false,
+                },
+                yAxis: {
+                    type: 'value',
+                    name: 'power (W)',
+                    boundaryGap: false,
+                },
+                series: [{
+                    name: 'Power',
+                    type: 'line',
+                    showSymbol: false,
+                    hoverAnimation: false,
+                    data: transformedData
+                },
+                    {
+                        name: 'Car power usage',
+                        type: 'line',
+                        showSymbol: false,
+                        hoverAnimation: false,
+                        clip: false,
+                        data: carPowerConsumption
+                    }],
+                dataZoom: [
+                    {
+                        show: true,
+                        realtime: true,
+                        start: 30,
+                        end: 70,
+                        xAxisIndex: [0, 1]
+                    },
+                    {
+                        type: 'inside',
+                        realtime: true,
+                        start: 30,
+                        end: 70,
+                        xAxisIndex: [0, 1]
+                    }
+                ],
+            };
+
+            myChart.setOption(option);
+        } else {
+            const noConsentNode = document.getElementById("no-consent")
+            noConsentNode.classList.remove("d-none")
+        }
+
+    });
